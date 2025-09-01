@@ -1,32 +1,73 @@
-import { Tabs, useRouter } from 'expo-router';
+import { Tabs, useRouter, Link } from 'expo-router';
 import { Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuthRole } from '../../lib/auth';
+import { useAuthRole } from '../../lib/auth';      // fullName + signOut + session
 import { theme } from '../../lib/theme';
+import { useSession } from '../../lib/useSession'; // { session, loading }
 
 function HeaderRight() {
   const router = useRouter();
   const { session, fullName, signOut } = useAuthRole();
 
   if (session) {
+    const handleSignOut = async () => {
+      try {
+        await signOut();
+      } finally {
+        // Aseguramos volver a Home
+        router.replace('/');
+      }
+    };
+
     return (
-      <View style={{ flexDirection:'row', alignItems:'center' }}>
-        {!!fullName && <Text style={{ color: theme.colors.gray, marginRight:8 }} numberOfLines={1}>Hola, {fullName}</Text>}
-        <TouchableOpacity onPress={() => signOut()} style={{ paddingHorizontal:12, paddingVertical:6, backgroundColor: theme.colors.text, borderRadius:8 }}>
-          <Text style={{ color:'#fff', fontWeight:'600' }}>Salir</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+        {!!fullName && (
+          <Text
+            style={{ color: theme.colors.gray, marginRight: 10 }}
+            numberOfLines={1}
+          >
+            Hola, {fullName}
+          </Text>
+        )}
+        <TouchableOpacity
+          onPress={handleSignOut}
+          style={{
+            paddingHorizontal: 14,
+            paddingVertical: 8,
+            backgroundColor: theme.colors.text,
+            borderRadius: 10,
+            marginRight: 4, // pequeño margen con el borde derecho del header
+          }}
+        >
+          <Text style={{ color: '#fff', fontWeight: '600' }}>Salir</Text>
         </TouchableOpacity>
       </View>
     );
   }
+
   return (
-    <TouchableOpacity onPress={() => router.push('/auth')} style={{ paddingHorizontal:12, paddingVertical:6, backgroundColor: theme.colors.primary, borderRadius:8 }}>
-      <Text style={{ color:'#fff', fontWeight:'700' }}>Entrar / Registrar</Text>
-    </TouchableOpacity>
+    <Link href="/auth" asChild>
+      <TouchableOpacity
+        style={{
+          paddingHorizontal: 14,
+          paddingVertical: 8,
+          backgroundColor: theme.colors.primary,
+          borderRadius: 10,
+          marginRight: 16, // ⟵ más margen como pediste
+        }}
+      >
+        <Text style={{ color: '#fff', fontWeight: '700' }}>
+          Entrar / Registrar
+        </Text>
+      </TouchableOpacity>
+    </Link>
   );
 }
 
 export default function TabsLayout() {
-  const { isOwner } = useAuthRole();
+  const { session, loading } = useSession();
+
+  if (loading) return null;
 
   return (
     <Tabs
@@ -48,11 +89,11 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="profile-empresa"
+        name="mi-perfil"
         options={{
-          title: 'Perfil empresa',
-          href: isOwner ? undefined : null,
-          tabBarIcon: ({ color, size }) => <Ionicons name="briefcase" color={color} size={size} />,
+          title: 'Mi perfil',
+          tabBarIcon: ({ color, size }) => <Ionicons name="person-circle" size={size} color={color} />,
+          href: session ? undefined : null, // oculta si no hay sesión
         }}
       />
     </Tabs>

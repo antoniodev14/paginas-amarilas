@@ -22,7 +22,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnon, {
   },
 });
 
-console.log(
-  'SUPABASE_URL:', process.env.EXPO_PUBLIC_SUPABASE_URL,
-  'ANON_KEY:', (process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '').slice(0,6) + '...'
-);
+// console.log(
+//   'SUPABASE_URL:', process.env.EXPO_PUBLIC_SUPABASE_URL,
+//   'ANON_KEY:', (process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '').slice(0,6) + '...'
+// );

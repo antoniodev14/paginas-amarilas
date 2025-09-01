@@ -3,6 +3,7 @@ import {
   View, Text, TouchableOpacity, TextInput, Alert, ScrollView, ActivityIndicator,
   KeyboardAvoidingView, Platform, TouchableWithoutFeedback, Keyboard
 } from 'react-native';
+import { useNavigation } from 'expo-router';
 import { supabase } from '../../lib/supabase';
 import { DAYS, isValidHHMM } from '../../lib/hours';
 import { theme } from '../../lib/theme';
@@ -11,9 +12,28 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type Opening = Record<string, { start:string; end:string }[]>;
 
+function normalizeHHMM(input: string) {
+  // Solo dígitos, máximo 4 (HHMM)
+  const d = (input || '').replace(/\D/g, '').slice(0, 4);
+  const h = d.slice(0, 2);
+  const m = d.slice(2, 4);
+  return d.length >= 3 ? `${h}:${m}` : h; // "1" -> "1", "123" -> "12:3"
+}
+
+function sanitizeHHMM(str: string) {
+  // Si ya está en formato HH:MM, clamp a 23:59
+  if (!/^\d{1,2}(:\d{1,2})?$/.test(str)) return str;
+  const [hhRaw, mmRaw = ''] = str.split(':');
+  let hh = Math.min(parseInt(hhRaw || '0', 10) || 0, 23);
+  let mm = Math.min(parseInt(mmRaw || '0', 10) || 0, 59);
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+}
+
 export default function Horarios() {
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
+
+  const navigation = useNavigation();
 
   const [bizId, setBizId] = useState<string | null>(null);
   const [hours, setHours] = useState<Opening>(() => Object.fromEntries(DAYS.map(d => [d.key, []])) as Opening);
@@ -21,6 +41,10 @@ export default function Horarios() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [kbVisible, setKbVisible] = useState(false); // 👈 estado teclado
+
+  useEffect(() => {
+    navigation.setOptions({ headerBackTitle: 'Atrás' });
+  }, [navigation]);
 
   // Escucha del teclado para ajustar paddingBottom
   useEffect(() => {
@@ -125,9 +149,11 @@ export default function Horarios() {
                   <View key={idx} style={{ flexDirection:'row', alignItems:'center', marginBottom:8 }}>
                     <TextInput
                       value={r.start}
-                      onChangeText={(t)=>updateRange(d.key, idx, 'start', t)}
+                      onChangeText={(t)=>updateRange(d.key, idx, 'start', normalizeHHMM(t))}
+                      onBlur={()=>updateRange(d.key, idx, 'start', sanitizeHHMM(r.start))}
                       placeholder="HH:MM"
-                      keyboardType="numeric"
+                      keyboardType="number-pad"
+                      maxLength={5}
                       style={{
                         flex:1, backgroundColor:'#fff', borderRadius:10, padding:10, marginRight:8,
                         borderWidth:1, borderColor: theme.colors.border, color: theme.colors.text
@@ -138,9 +164,11 @@ export default function Horarios() {
                     <Text style={{ marginHorizontal:4, color: theme.colors.text }}>–</Text>
                     <TextInput
                       value={r.end}
-                      onChangeText={(t)=>updateRange(d.key, idx, 'end', t)}
+                      onChangeText={(t)=>updateRange(d.key, idx, 'end', normalizeHHMM(t))}
+                      onBlur={()=>updateRange(d.key, idx, 'end', sanitizeHHMM(r.end))}
                       placeholder="HH:MM"
-                      keyboardType="numeric"
+                      keyboardType="number-pad"
+                      maxLength={5}
                       style={{
                         flex:1, backgroundColor:'#fff', borderRadius:10, padding:10, marginLeft:8, marginRight:8,
                         borderWidth:1, borderColor: theme.colors.border, color: theme.colors.text

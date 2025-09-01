@@ -6,12 +6,14 @@ import { DropdownSelect } from '../../components/DropdownSelect';
 import { BusinessCard } from '../../components/BusinessCard';
 import { theme } from '../../lib/theme';
 import { useFocusEffect, useRouter } from 'expo-router';
+import { useAuthRole } from '../../lib/auth'; // ⟵ para obtener fullName y saber si hay sesión
 
 type Row = { id:string; name:string; service:string; city:string; image_url:string|null; is_open:boolean; };
 type Service = { slug:string; name:string; };
 
 export default function Home() {
   const router = useRouter();
+  const { session, fullName } = useAuthRole();
   const [q, setQ] = useState('');
   const [services, setServices] = useState<Service[]>([]);
   const [cities, setCities] = useState<string[]>([]);
@@ -26,10 +28,20 @@ export default function Home() {
 
   useEffect(() => {
     (async () => {
-      const { data: s } = await supabase.from('services').select('name, slug').order('name', { ascending: true });
+      const { data: s } = await supabase
+        .from('services')
+        .select('name, slug')
+        .order('name', { ascending: true });
       setServices(s ?? []);
-      const { data: c } = await supabase.from('businesses').select('city').eq('published', true);
-      const uniq = Array.from(new Set((c ?? []).map(x => x.city).filter((x:any)=>!!x && String(x).trim()!==''))) as string[];
+
+      const { data: c } = await supabase
+        .from('businesses')
+        .select('city')
+        .eq('published', true);
+
+      const uniq = Array.from(
+        new Set((c ?? []).map(x => x.city).filter((x:any)=>!!x && String(x).trim()!==''))
+      ) as string[];
       uniq.sort((a,b)=>a.localeCompare(b));
       setCities(uniq);
     })();
@@ -65,7 +77,7 @@ export default function Home() {
         value={q}
         onChange={setQ}
         onPickSuggestion={(t)=>{ setQ(t); fetchData(t); }}
-        closeSignal={closeTick.current}  // ⟵ cierra lista al hacer scroll
+        closeSignal={closeTick.current}
       />
 
       {/* Filtros */}
@@ -85,14 +97,16 @@ export default function Home() {
       </View>
 
       {loading ? (
-        <View style={{ marginTop:16 }}><ActivityIndicator color={theme.colors.primary} /></View>
+        <View style={{ marginTop:16 }}>
+          <ActivityIndicator color={theme.colors.primary} />
+        </View>
       ) : (
         <FlatList
           data={data}
           keyExtractor={(item) => item.id}
           contentContainerStyle={{ paddingVertical:6, paddingBottom:16 }}
           keyboardShouldPersistTaps="handled"
-          onScrollBeginDrag={bumpCloseTick} // ⟵ cierra sugerencias para no bloquear taps
+          onScrollBeginDrag={bumpCloseTick}
           renderItem={({ item }) => (
             <BusinessCard
               name={item.name}
@@ -100,10 +114,14 @@ export default function Home() {
               service={item.service}
               isOpen={item.is_open}
               imageUrl={item.image_url ? `${item.image_url}${item.image_url.includes('?') ? '&' : '?'}ts=${item.id}` : null}
-              onPress={() => router.push(`/business/${item.id}`)} // ⟵ navega al detalle
+              onPress={() => router.push(`/business/${item.id}`)}
             />
           )}
-          ListEmptyComponent={<Text style={{ textAlign:'center', marginTop:24, color:theme.colors.gray }}>Sin resultados</Text>}
+          ListEmptyComponent={
+            <Text style={{ textAlign:'center', marginTop:24, color:theme.colors.gray }}>
+              Sin resultados
+            </Text>
+          }
         />
       )}
     </View>

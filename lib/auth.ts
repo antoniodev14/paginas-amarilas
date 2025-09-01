@@ -14,10 +14,18 @@ export function useAuthRole() {
     let mounted = true;
 
     (async () => {
-      const { data } = await supabase.auth.getSession();
+      const { data: { session } } = await supabase.auth.getSession();
       if (!mounted) return;
-      setSession(data.session);
-      setLoading(false);
+      setSession(session);
+
+      if (session?.user) {
+        const uid = session.user.id;
+        const { data: p } = await supabase.from('profiles').select('full_name').eq('id', uid).maybeSingle();
+        setFullName(p?.full_name ?? null);
+
+        const { data: bm } = await supabase.from('business_members').select('role').eq('user_id', uid).limit(1);
+        setIsOwner((bm ?? []).some((r:any) => r.role === 'owner'));
+      }
     })();
 
     const sub = supabase.auth.onAuthStateChange((_event, s) => {
@@ -30,6 +38,9 @@ export function useAuthRole() {
     };
   }, []);
 
+  const signOut = async () => { await supabase.auth.signOut(); };
+
+  return { session, fullName, isOwner, signOut };
   // 2) Recalcular perfil y isOwner siempre que cambie el usuario logueado
   useEffect(() => {
     let cancelled = false;

@@ -5,6 +5,7 @@ import { readAsStringAsync, EncodingType } from 'expo-file-system';
 import { supabase } from '../../lib/supabase';
 import { Buffer } from 'buffer';
 import { theme } from '../../lib/theme';
+import { useNavigation } from 'expo-router';
 
 type Service = { id: string; name: string; slug: string };
 type Biz = {
@@ -18,6 +19,8 @@ export default function GestionEmpresa() {
   const [services, setServices] = useState<Service[]>([]);
   const [biz, setBiz] = useState<Biz | null>(null);
 
+  const navigation = useNavigation();
+
   // form
   const [name, setName] = useState('');
   const [serviceId, setServiceId] = useState<string>('');
@@ -26,6 +29,10 @@ export default function GestionEmpresa() {
   const [phone, setPhone] = useState('');
   const [desc, setDesc] = useState('');
   const [img, setImg] = useState<string | null>(null);
+
+  useEffect(() => {
+    navigation.setOptions({ headerBackTitle: 'Atrás' });
+  }, [navigation]);
 
   useEffect(() => {
     let mounted = true;
