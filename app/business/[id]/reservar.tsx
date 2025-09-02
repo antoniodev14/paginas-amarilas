@@ -146,22 +146,53 @@ export default function ReservarScreen() {
   // Acciones
   const cancelReservation = async (reservationId: string) => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const anon = user ? null : await getClientAnonToken();
+      let ok = false;
 
-      const { data, error } = await supabase.rpc('cancel_reservation_self', {
-        p_reservation_id: reservationId,
-        p_anon_token: anon,
-      });
-      if (error) throw error;
-      if (!data) { Alert.alert('No se pudo cancelar', 'Comprueba el estado o la autoría.'); return; }
+      // 1) Intento como usuario registrado (si lo hay)
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data, error } = await supabase.rpc('cancel_reservation_self', {
+            p_reservation_id: reservationId,
+            p_reason: null,
+            p_cancel_status: 'canceled', // unificamos a 'canceled'
+          });
+          if (error) throw error;
+          ok = Boolean(data ?? true);
+        }
+      } catch (e) {
+        // seguimos al intento anónimo
+      }
 
-      await loadMyReservations();
-      Alert.alert('Cancelada', 'Tu reserva ha sido cancelada.');
+      // 2) Si no estamos logados o falló la 1), probamos como anónimo con el anon_token
+      if (!ok) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          const anon = await getClientAnonToken(); // debe ser el MISMO token con el que creaste la reserva
+          const { data, error } = await supabase.rpc('cancel_reservation_self_anon', {
+            p_reservation_id: reservationId,
+            p_anon_token: anon,
+            p_reason: null,
+            p_cancel_status: 'canceled', // ⬅️ mismo estado
+          });
+          if (error) throw error;
+          ok = Boolean(data ?? true);
+        }
+      }
+
+      if (!ok) {
+        Alert.alert('No se pudo cancelar', 'La reserva no es tuya, o ya no es cancelable.');
+        return;
+      }
+
+      Alert.alert('Reserva cancelada', 'Se ha cancelado tu reserva.');
+      await loadMyReservations(); // refresca la lista
     } catch (e: any) {
+      console.log('[reservas] cancelar — error:', e);
       Alert.alert('Error', e?.message ?? 'No se pudo cancelar');
     }
   };
+
 
   const acceptProposal = async (reservationId: string) => {
     try {

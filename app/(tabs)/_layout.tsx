@@ -1,9 +1,9 @@
 import { Tabs, useRouter, Link } from 'expo-router';
-import { Text, TouchableOpacity, View } from 'react-native';
+import { Text, TouchableOpacity, View, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useAuthRole } from '../../lib/auth';      // fullName + signOut + session
+import { useAuthRole } from '../../lib/auth';
 import { theme } from '../../lib/theme';
-import { useSession } from '../../lib/useSession'; // { session, loading }
+import { useSession } from '../../lib/useSession';
 
 function HeaderRight() {
   const router = useRouter();
@@ -11,35 +11,20 @@ function HeaderRight() {
 
   if (session) {
     const handleSignOut = async () => {
-      try {
-        await signOut();
-      } finally {
-        // Aseguramos volver a Home
-        router.replace('/');
-      }
+      try { await signOut(); } finally { router.replace('/'); }
     };
-
     return (
-      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+      <View style={{ flexDirection:'row', alignItems:'center' }}>
         {!!fullName && (
-          <Text
-            style={{ color: theme.colors.gray, marginRight: 10 }}
-            numberOfLines={1}
-          >
+          <Text style={{ color: theme.colors.gray, marginRight: 10 }} numberOfLines={1}>
             Hola, {fullName}
           </Text>
         )}
         <TouchableOpacity
           onPress={handleSignOut}
-          style={{
-            paddingHorizontal: 14,
-            paddingVertical: 8,
-            backgroundColor: theme.colors.text,
-            borderRadius: 10,
-            marginRight: 4, // pequeño margen con el borde derecho del header
-          }}
+          style={{ paddingHorizontal:14, paddingVertical:8, backgroundColor: theme.colors.text, borderRadius:10, marginRight:4 }}
         >
-          <Text style={{ color: '#fff', fontWeight: '600' }}>Salir</Text>
+          <Text style={{ color:'#fff', fontWeight:'600' }}>Salir</Text>
         </TouchableOpacity>
       </View>
     );
@@ -48,17 +33,9 @@ function HeaderRight() {
   return (
     <Link href="/auth" asChild>
       <TouchableOpacity
-        style={{
-          paddingHorizontal: 14,
-          paddingVertical: 8,
-          backgroundColor: theme.colors.primary,
-          borderRadius: 10,
-          marginRight: 16, // ⟵ más margen como pediste
-        }}
+        style={{ paddingHorizontal:14, paddingVertical:8, backgroundColor: theme.colors.primary, borderRadius:10, marginRight:16 }}
       >
-        <Text style={{ color: '#fff', fontWeight: '700' }}>
-          Entrar / Registrar
-        </Text>
+        <Text style={{ color:'#fff', fontWeight:'700' }}>Entrar / Registrar</Text>
       </TouchableOpacity>
     </Link>
   );
@@ -67,7 +44,13 @@ function HeaderRight() {
 export default function TabsLayout() {
   const { session, loading } = useSession();
 
-  if (loading) return null;
+  if (loading) {
+    return (
+      <View style={{ flex:1, alignItems:'center', justifyContent:'center', backgroundColor: theme.colors.card }}>
+        <ActivityIndicator />
+      </View>
+    );
+  }
 
   return (
     <Tabs
@@ -85,15 +68,26 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: 'Inicio',
-          tabBarIcon: ({ color, size }) => <Ionicons name="home" color={color} size={size} />,
+          tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" color={color} size={size} />,
         }}
       />
+
       <Tabs.Screen
         name="mi-perfil"
         options={{
           title: 'Mi perfil',
-          tabBarIcon: ({ color, size }) => <Ionicons name="person-circle" size={size} color={color} />,
+          tabBarIcon: ({ color, size }) => <Ionicons name="person-circle-outline" size={size} color={color} />,
           href: session ? undefined : null, // oculta si no hay sesión
+        }}
+      />
+
+      {/* visible solo con sesión; el guard de owner se hace dentro de la pantalla */}
+      <Tabs.Screen
+        name="reservas"
+        options={{
+          title: 'Reservas',
+          tabBarIcon: ({ color, size }) => <Ionicons name="calendar-outline" color={color} size={size} />,
+          href: session ? undefined : null,
         }}
       />
     </Tabs>
