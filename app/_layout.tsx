@@ -12,6 +12,7 @@ export default function RootStack() {
       <Stack.Screen name="business/[id]" options={{ title: 'Atras' }} />
       <Stack.Screen name="dish/[id]" options={{ title: 'Plato' }} />
       <Stack.Screen name="profile-empresa/productos" options={{ title: 'Productos' }} />
+      <Stack.Screen name="business/[id]/reservar" options={{ title: 'Reservar mesa', headerBackTitle: 'Atrás' }} />
       <Stack.Screen name="profile-empresa/galeria/index" options={{ title: 'Galería de imágenes' }} />
       <Stack.Screen name="profile-empresa/galeria/dish" options={{ title: 'Galería del plato' }} />
     </Stack>

@@ -10,7 +10,7 @@ export function useAuthInfo() {
     if (!userId) { setIsOwner(false); return; }
     const { data, error } = await supabase
       .from('business_members')
-      .select('role')
+      .select('business_id, role')
       .eq('user_id', userId)
       .limit(1);
     if (error) { console.log('role error', error); setIsOwner(false); return; }
