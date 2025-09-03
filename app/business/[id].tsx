@@ -51,6 +51,17 @@ type Reservation = {
   proposed_time?: string | null;
 };
 
+const STATUS_LABEL: Record<Reservation['status'] | string, string> = {
+  pending: 'Pendiente',
+  owner_proposed: 'Propuesta dueño',
+  confirmed: 'Confirmada',
+  modified: 'Modificada',
+  declined: 'Rechazada cliente',
+  canceled: 'Cancelada',
+  cancelled: 'Cancelada',
+  accepted: 'Aceptada cliente', // por si te llega de algún histórico, pero ya no lo usamos
+};
+
 const getPeople = (r: Reservation) => (r.people ?? r.party ?? r.party_size ?? null);
 const fmtYMD = (d: Date) => {
   const y = d.getFullYear();
@@ -259,11 +270,18 @@ export default function BusinessDetail() {
                   <Text style={{ fontWeight:'800', color: theme.colors.text }}>
                     {dateLabel} · {timeLabel}{ppl ? ` — ${ppl} pers.` : ''}
                   </Text>
+                  
                   <View style={{ backgroundColor: statusBg, paddingHorizontal:8, paddingVertical:4, borderRadius:8 }}>
-                    <Text style={{ color: statusColor, fontWeight:'700', fontSize:12 }}>{r.status}</Text>
+                    <Text style={{ color: statusColor, fontWeight:'700', fontSize:12 }}>
+                      {STATUS_LABEL[r.status] ?? r.status}
+                    </Text>
                   </View>
                 </View>
-
+                {r.proposed_time && (r.status === 'owner_proposed' || r.status === 'modified') && (
+                  <Text style={{ marginTop:6, color:'#8D6E63', fontWeight:'600' }}>
+                    Hora propuesta: {r.proposed_time.slice(0,5)}
+                  </Text>
+                )}
                 {r.notes ? (<Text style={{ marginTop:4, color: theme.colors.gray }} numberOfLines={2}>{r.notes}</Text>) : null}
               </View>
             );

@@ -17,6 +17,7 @@ type Profile = {
   id: string;
   username: string | null;
   full_name: string | null;
+  phone: number | null;
   avatar_url: string | null;
 };
 type OwnedBiz = { id: string; name: string; city: string | null; image_url: string | null };
@@ -36,6 +37,7 @@ export default function MiPerfil() {
   const [usernameOk, setUsernameOk] = useState<null | boolean>(null);
   const [fullName, setFullName] = useState('');
   const [avatar, setAvatar] = useState<string | null>(null);
+  const [phone, setPhone] = useState('');
 
   const [owned, setOwned] = useState<OwnedBiz[]>([]);
 
@@ -51,7 +53,7 @@ export default function MiPerfil() {
 
       const { data: p } = await supabase
         .from('profiles')
-        .select('id, username, full_name, avatar_url')
+        .select('id, username, full_name,phone, avatar_url')
         .eq('id', user.id)
         .maybeSingle();
       if (p) {
@@ -59,6 +61,8 @@ export default function MiPerfil() {
         setUsername(p.username ?? '');
         setFullName(p.full_name ?? '');
         setAvatar(p.avatar_url ?? null);
+        setPhone(p.phone ?? '');
+
       }
 
       // negocios donde soy owner (incluye image_url y city)
@@ -111,7 +115,8 @@ export default function MiPerfil() {
         .update({
           username: u || null,
           full_name: fullName.trim() || null,
-          avatar_url: avatar || null
+          avatar_url: avatar || null,
+          phone: phone || null
         })
         .eq('id', profile.id)
         .select('id')
@@ -239,6 +244,15 @@ export default function MiPerfil() {
             value={fullName}
             onChangeText={setFullName}
             placeholder="Tu nombre"
+            placeholderTextColor={theme.colors.gray}
+            style={{ backgroundColor:'#fff', borderRadius:10, padding:12, borderWidth:1, borderColor: theme.colors.border, marginBottom:16, color: theme.colors.text }}
+          />
+          {/* phone */}
+          <Text style={{ marginBottom:6, color: theme.colors.text }}>Telefono</Text>
+          <TextInput
+            value={phone}
+            onChangeText={setPhone}
+            placeholder="Tu telefono"
             placeholderTextColor={theme.colors.gray}
             style={{ backgroundColor:'#fff', borderRadius:10, padding:12, borderWidth:1, borderColor: theme.colors.border, marginBottom:16, color: theme.colors.text }}
           />

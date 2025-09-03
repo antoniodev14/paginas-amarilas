@@ -32,6 +32,17 @@ type Reservation = {
   proposed_time?: string | null;
 };
 
+const STATUS_LABEL: Record<Reservation['status'] | string, string> = {
+  pending: 'Pendiente',
+  owner_proposed: 'Propuesta dueño',
+  confirmed: 'Confirmada',
+  modified: 'Modificada',
+  declined: 'Rechazada cliente',
+  canceled: 'Cancelada',
+  cancelled: 'Cancelada',
+  accepted: 'Aceptada cliente', // por si te llega de algún histórico, pero ya no lo usamos
+};
+
 const getPeople = (r: Reservation) => (r.people ?? r.party ?? r.party_size ?? null);
 
 function fmtYMD(d: Date) {
@@ -335,7 +346,9 @@ export default function ReservarScreen() {
                       {dateLabel} · {timeLabel}{ppl ? ` — ${ppl} pers.` : ''}
                     </Text>
                     <View style={{ backgroundColor: statusBg, paddingHorizontal:8, paddingVertical:4, borderRadius:8 }}>
-                      <Text style={{ color: statusColor, fontWeight:'700', fontSize:12 }}>{r.status}</Text>
+                      <Text style={{ color: statusColor, fontWeight:'700', fontSize:12 }}>
+                        {STATUS_LABEL[r.status] ?? r.status}
+                      </Text>
                     </View>
                   </View>
 

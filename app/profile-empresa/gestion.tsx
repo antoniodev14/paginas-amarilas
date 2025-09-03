@@ -177,25 +177,8 @@ export default function GestionEmpresa() {
     <KeyboardAvoidingView behavior={Platform.select({ ios:'padding', android:'height' })} style={{ flex:1 }}>
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <ScrollView style={{ flex:1, backgroundColor: theme.colors.card }} contentContainerStyle={{ padding:16, gap:12, paddingBottom: 24 }}>
-          <Text style={{ color: theme.colors.text, fontWeight:'800', fontSize:18, marginBottom:8 }}>Gestión de empresa</Text>
-
           <Text style={{ color: theme.colors.text }}>Nombre</Text>
           <TextInput value={name} onChangeText={setName} style={styles.input} placeholder="Mi negocio" placeholderTextColor={theme.colors.gray} />
-
-          <Text style={{ color: theme.colors.text }}>Servicio</Text>
-          <View style={styles.selectBtn}>
-            <Text style={{ color: theme.colors.text }} onPress={() => {}}>
-              { services.find(s=>s.id===serviceId)?.name ?? 'Selecciona servicio' }
-            </Text>
-          </View>
-          <View style={{ backgroundColor: theme.colors.grayBg, borderRadius:8, borderWidth:1, borderColor: theme.colors.border }}>
-            {services.map(s => (
-              <TouchableOpacity key={s.id} onPress={() => setServiceId(s.id)} style={{ padding:12, borderBottomWidth:1, borderBottomColor: theme.colors.border }}>
-                <Text style={{ color: theme.colors.text, fontWeight: s.id===serviceId ? '700':'400' }}>{s.name}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
           <Text style={{ color: theme.colors.text }}>Ciudad</Text>
           <TextInput value={city} onChangeText={setCity} style={styles.input} placeholder="Madrid" placeholderTextColor={theme.colors.gray} />
           <Text style={{ color: theme.colors.text }}>Dirección</Text>
@@ -204,13 +187,11 @@ export default function GestionEmpresa() {
           <TextInput value={phone} onChangeText={setPhone} style={styles.input} keyboardType="phone-pad" placeholder="+34 ..." placeholderTextColor={theme.colors.gray} />
           <Text style={{ color: theme.colors.text }}>Descripción</Text>
           <TextInput value={desc} onChangeText={setDesc} style={[styles.input,{height:100}]} multiline placeholder="Cuéntanos sobre tu negocio" placeholderTextColor={theme.colors.gray} />
-
           <Text style={{ color: theme.colors.text }}>Imagen principal</Text>
           {img ? <Image source={{ uri: img }} style={{ width:'100%', height:160, borderRadius:10, borderWidth:1, borderColor: theme.colors.border }} /> : null}
           <TouchableOpacity onPress={onPickImage} style={[styles.button, { backgroundColor: theme.colors.primary }]} disabled={uploading}>
             {uploading ? <ActivityIndicator color="#fff" /> : <Text style={[styles.buttonText,{ color:'#fff' }]}>Subir / Cambiar imagen</Text>}
           </TouchableOpacity>
-
           <TouchableOpacity onPress={onSave} style={[styles.button,{ backgroundColor: theme.colors.text }]}>
             <Text style={[styles.buttonText,{ color:'#fff' }]}>Guardar cambios</Text>
           </TouchableOpacity>
