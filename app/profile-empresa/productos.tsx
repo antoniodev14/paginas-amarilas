@@ -5,8 +5,7 @@ import {
   Platform,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { readAsStringAsync, EncodingType } from 'expo-file-system';
-import { Buffer } from 'buffer';
+import { uploadImage } from '../../lib/upload';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { supabase } from '../../lib/supabase';
@@ -241,36 +240,8 @@ export default function ProductosScreen() {
   async function uploadImageIfNeeded(dishId: string): Promise<string|null> {
     if (!form.localImageUri) return form.image_url ?? null;
 
-    let bytes: Uint8Array | Buffer;
-
-    try {
-      const r = await fetch(form.localImageUri);
-      const b: any = await r.blob();
-      if (typeof b.arrayBuffer === 'function') {
-        const ab = await b.arrayBuffer();
-        bytes = new Uint8Array(ab);
-      } else {
-        const b64 = await readAsStringAsync(form.localImageUri, { encoding: EncodingType.Base64 });
-        bytes = Buffer.from(b64, 'base64');
-      }
-    } catch {
-      const b64 = await readAsStringAsync(form.localImageUri, { encoding: EncodingType.Base64 });
-      bytes = Buffer.from(b64, 'base64');
-    }
-
     const path = `menu/${businessId}/${dishId}/main-${Date.now()}.jpg`;
-
-    const { error: upErr } = await supabase.storage
-      .from('menu-images')
-      .upload(path, bytes, {
-        contentType: form.localImageMime ?? 'image/jpeg',
-        upsert: true,
-      });
-    if (upErr) throw upErr;
-
-    const { data: pub } = supabase.storage.from('menu-images').getPublicUrl(path);
-    const publicUrl = pub?.publicUrl ? `${pub.publicUrl}?v=${Date.now()}` : null;
-    return publicUrl;
+    return await uploadImage('menu-images', path, form.localImageUri, form.localImageMime ?? 'image/jpeg');
   }
 
   const onSave = async () => {

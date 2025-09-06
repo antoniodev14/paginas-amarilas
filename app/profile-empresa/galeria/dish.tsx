@@ -1,13 +1,12 @@
 import { useEffect, useState } from 'react';
 import { View, Text, Image, TouchableOpacity, ActivityIndicator, Alert, FlatList, Modal, Dimensions } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { readAsStringAsync, EncodingType } from 'expo-file-system';
-import { Buffer } from 'buffer';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { supabase } from '../../../lib/supabase';
 import { useAuthInfo } from '../../../lib/useAuthInfo';
 import { theme } from '../../../lib/theme';
+import { uploadImage } from '../../../lib/upload';
 
 type Dish = { id:string; name:string };
 type DishImage = { id:string; image_url:string; position:number|null };
@@ -100,32 +99,8 @@ export default function GaleriaPlatoDetalle() {
     try {
       setUploading(true);
       const asset = res.assets[0];
-
-      let bytes: Uint8Array | Buffer;
-      try {
-        const r = await fetch(asset.uri);
-        const b: any = await r.blob();
-        if (typeof b.arrayBuffer === 'function') {
-          const ab = await b.arrayBuffer();
-          bytes = new Uint8Array(ab);
-        } else {
-          const b64 = await readAsStringAsync(asset.uri, { encoding: EncodingType.Base64 });
-          bytes = Buffer.from(b64, 'base64');
-        }
-      } catch {
-        const b64 = await readAsStringAsync(asset.uri, { encoding: EncodingType.Base64 });
-        bytes = Buffer.from(b64, 'base64');
-      }
-
       const path = `menu/${businessId}/${dishId}/gallery-${Date.now()}.jpg`;
-
-      const { error: upErr } = await supabase.storage
-        .from('menu-images')
-        .upload(path, bytes, { contentType: asset.mimeType ?? 'image/jpeg', upsert: true });
-      if (upErr) throw upErr;
-
-      const { data: pub } = supabase.storage.from('menu-images').getPublicUrl(path);
-      const publicUrl = `${pub.publicUrl}?v=${Date.now()}`;
+      const publicUrl = await uploadImage('menu-images', path, asset.uri, asset.mimeType ?? 'image/jpeg');
 
       const { error: insErr } = await supabase
         .from('menu_dish_images')

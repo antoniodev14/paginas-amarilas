@@ -5,13 +5,12 @@ import {
   TouchableWithoutFeedback, Keyboard
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { readAsStringAsync, EncodingType } from 'expo-file-system';
-import { Buffer } from 'buffer';
 import { supabase } from '../../lib/supabase';
 import { theme } from '../../lib/theme';
 import { useAuthInfo } from '../../lib/useAuthInfo';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { uploadImage } from '../../lib/upload';
 
 type Profile = {
   id: string;
@@ -41,6 +40,9 @@ export default function MiPerfil() {
 
   const [owned, setOwned] = useState<OwnedBiz[]>([]);
 
+  // NUEVO: modo edición
+  const [isEditing, setIsEditing] = useState(false);
+
   useEffect(() => {
     if (!loadingAuth && !session) router.replace('/auth');
   }, [loadingAuth, session]);
@@ -53,16 +55,17 @@ export default function MiPerfil() {
 
       const { data: p } = await supabase
         .from('profiles')
-        .select('id, username, full_name,phone, avatar_url')
+        .select('id, username, full_name, phone, avatar_url')
         .eq('id', user.id)
         .maybeSingle();
+
       if (p) {
         setProfile(p);
         setUsername(p.username ?? '');
         setFullName(p.full_name ?? '');
         setAvatar(p.avatar_url ?? null);
-        setPhone(p.phone ?? '');
-
+        // Aseguramos string para el input
+        setPhone(p.phone ? String(p.phone) : '');
       }
 
       // negocios donde soy owner (incluye image_url y city)
@@ -84,8 +87,10 @@ export default function MiPerfil() {
     })();
   }, [session]);
 
-  // disponibilidad username
+  // disponibilidad username (solo útil cuando editamos)
   useEffect(() => {
+    if (!isEditing) { setUsernameOk(null); return; }
+
     let active = true;
     const t = setTimeout(async () => {
       const u = username.trim();
@@ -100,7 +105,7 @@ export default function MiPerfil() {
       }
     }, 250);
     return () => { active = false; clearTimeout(t); };
-  }, [username, profile?.username]);
+  }, [username, profile?.username, isEditing]);
 
   const onSave = async () => {
     if (!profile) return;
@@ -116,13 +121,15 @@ export default function MiPerfil() {
           username: u || null,
           full_name: fullName.trim() || null,
           avatar_url: avatar || null,
-          phone: phone || null
+          phone: phone.trim() || null
         })
         .eq('id', profile.id)
         .select('id')
         .single();
       if (error) throw error;
+
       Alert.alert('Guardado', 'Perfil actualizado');
+      setIsEditing(false);
     } catch (e:any) {
       Alert.alert('Error', e.message ?? 'No se pudo guardar');
     } finally {
@@ -148,32 +155,8 @@ export default function MiPerfil() {
     try {
       setUploading(true);
       const asset = res.assets[0];
-
-      let bytes: Uint8Array | Buffer;
-      try {
-        const r = await fetch(asset.uri);
-        const b: any = await r.blob();
-        if (typeof b.arrayBuffer === 'function') {
-          const ab = await b.arrayBuffer();
-          bytes = new Uint8Array(ab);
-        } else {
-          const b64 = await readAsStringAsync(asset.uri, { encoding: EncodingType.Base64 });
-          bytes = Buffer.from(b64, 'base64');
-        }
-      } catch {
-        const b64 = await readAsStringAsync(asset.uri, { encoding: EncodingType.Base64 });
-        bytes = Buffer.from(b64, 'base64');
-      }
-
       const path = `users/${user.id}/avatar-${Date.now()}.jpg`;
-
-      const { error: upErr } = await supabase.storage
-        .from('avatars')
-        .upload(path, bytes, { contentType: asset.mimeType ?? 'image/jpeg', upsert: true });
-      if (upErr) { throw upErr; }
-
-      const { data: pub } = supabase.storage.from('avatars').getPublicUrl(path);
-      const publicUrl = `${pub.publicUrl}?v=${Date.now()}`;
+      const publicUrl = await uploadImage('avatars', path, asset.uri, asset.mimeType ?? 'image/jpeg');
 
       const { error: updErr } = await supabase
         .from('profiles')
@@ -202,7 +185,7 @@ export default function MiPerfil() {
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <ScrollView style={{ flex:1, backgroundColor: theme.colors.card }} contentContainerStyle={{ padding:16, paddingBottom:24 }}>
 
-          {/* Avatar + Email */}
+          {/* Avatar + Email + Acciones */}
           <View style={{ flexDirection:'row', alignItems:'center', marginBottom:16 }}>
             <TouchableOpacity onPress={onPickAvatar} disabled={uploading} style={{ marginRight:12 }}>
               {avatar ? (
@@ -213,53 +196,103 @@ export default function MiPerfil() {
                 </View>
               )}
             </TouchableOpacity>
+
             <View style={{ flex:1 }}>
               <Text style={{ color: theme.colors.gray, marginBottom:4 }}>Email</Text>
               <Text style={{ fontWeight:'700', color: theme.colors.text }}>{email || '—'}</Text>
-              <TouchableOpacity onPress={onPickAvatar} disabled={uploading} style={{ marginTop:8, paddingHorizontal:12, paddingVertical:8, backgroundColor: theme.colors.primary, borderRadius:8, alignSelf:'flex-start' }}>
-                {uploading ? <ActivityIndicator color="#fff" /> : <Text style={{ color:'#fff', fontWeight:'700' }}>Cambiar foto</Text>}
-              </TouchableOpacity>
+
+              <View style={{ flexDirection:'row', alignItems:'center', marginTop:8 }}>
+                <TouchableOpacity
+                  onPress={onPickAvatar}
+                  disabled={uploading}
+                  style={{ paddingHorizontal:12, paddingVertical:8, backgroundColor: theme.colors.primary, borderRadius:8, alignSelf:'flex-start', marginRight:8 }}
+                >
+                  {uploading ? <ActivityIndicator color="#fff" /> : <Text style={{ color:'#fff', fontWeight:'700' }}>Cambiar foto</Text>}
+                </TouchableOpacity>
+
+                {/* Botón lápiz para alternar edición */}
+                <TouchableOpacity
+                  onPress={() => setIsEditing(v => !v)}
+                  style={{
+                    paddingHorizontal:10,
+                    paddingVertical:8,
+                    borderRadius:8,
+                    borderWidth:1,
+                    borderColor: theme.colors.border,
+                    backgroundColor:'#fff',
+                    flexDirection:'row',
+                    alignItems:'center',
+                    gap:6
+                  }}
+                >
+                  <Ionicons name={isEditing ? 'close' : 'create-outline'} size={18} color={theme.colors.text} />
+                  <Text style={{ color: theme.colors.text, fontWeight:'700' }}>{isEditing ? 'Cerrar' : 'Editar'}</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
 
-          {/* Username */}
-          <Text style={{ marginBottom:6, color: theme.colors.text }}>Usuario</Text>
-          <TextInput
-            value={username}
-            onChangeText={setUsername}
-            autoCapitalize="none"
-            placeholder="tu_usuario"
-            placeholderTextColor={theme.colors.gray}
-            style={{ backgroundColor:'#fff', borderRadius:10, padding:12, borderWidth:1, borderColor: theme.colors.border, marginBottom:6, color: theme.colors.text }}
-          />
-          {username.length > 0 && (
-            <Text style={{ marginBottom:12, color: usernameOk === false ? '#c1121f' : usernameOk ? theme.colors.success : theme.colors.gray }}>
-              {usernameOk === false ? 'No disponible' : usernameOk ? 'Disponible' : 'Mínimo 3 caracteres'}
-            </Text>
+          {/* CONTENIDO: Vista vs Edición */}
+          {!isEditing ? (
+            // --- VISTA SOLO LECTURA ---
+            <View style={{ backgroundColor:'#fff', borderRadius:12, borderWidth:1, borderColor: theme.colors.border, padding:12, marginBottom:16 }}>
+              <View style={{ marginBottom:12 }}>
+                <Text style={{ color: theme.colors.gray, marginBottom:4 }}>Usuario</Text>
+                <Text style={{ color: theme.colors.text, fontWeight:'600' }}>{username || '—'}</Text>
+              </View>
+              <View style={{ marginBottom:12 }}>
+                <Text style={{ color: theme.colors.gray, marginBottom:4 }}>Nombre completo</Text>
+                <Text style={{ color: theme.colors.text, fontWeight:'600' }}>{fullName || '—'}</Text>
+              </View>
+              <View>
+                <Text style={{ color: theme.colors.gray, marginBottom:4 }}>Teléfono</Text>
+                <Text style={{ color: theme.colors.text, fontWeight:'600' }}>{phone || '—'}</Text>
+              </View>
+            </View>
+          ) : (
+            // --- MODO EDICIÓN (inputs + guardar) ---
+            <>
+              {/* Username */}
+              <Text style={{ marginBottom:6, color: theme.colors.text }}>Usuario</Text>
+              <TextInput
+                value={username}
+                onChangeText={setUsername}
+                autoCapitalize="none"
+                placeholder="tu_usuario"
+                placeholderTextColor={theme.colors.gray}
+                style={{ backgroundColor:'#fff', borderRadius:10, padding:12, borderWidth:1, borderColor: theme.colors.border, marginBottom:6, color: theme.colors.text }}
+              />
+              {username.length > 0 && (
+                <Text style={{ marginBottom:12, color: usernameOk === false ? '#c1121f' : usernameOk ? theme.colors.success : theme.colors.gray }}>
+                  {usernameOk === false ? 'No disponible' : usernameOk ? 'Disponible' : 'Mínimo 3 caracteres'}
+                </Text>
+              )}
+
+              {/* Nombre completo */}
+              <Text style={{ marginBottom:6, color: theme.colors.text }}>Nombre completo</Text>
+              <TextInput
+                value={fullName}
+                onChangeText={setFullName}
+                placeholder="Tu nombre"
+                placeholderTextColor={theme.colors.gray}
+                style={{ backgroundColor:'#fff', borderRadius:10, padding:12, borderWidth:1, borderColor: theme.colors.border, marginBottom:16, color: theme.colors.text }}
+              />
+              {/* phone */}
+              <Text style={{ marginBottom:6, color: theme.colors.text }}>Teléfono</Text>
+              <TextInput
+                value={phone}
+                onChangeText={setPhone}
+                placeholder="Tu teléfono"
+                keyboardType="phone-pad"
+                placeholderTextColor={theme.colors.gray}
+                style={{ backgroundColor:'#fff', borderRadius:10, padding:12, borderWidth:1, borderColor: theme.colors.border, marginBottom:16, color: theme.colors.text }}
+              />
+
+              <TouchableOpacity onPress={onSave} disabled={saving} style={{ backgroundColor: theme.colors.text, borderRadius:10, padding:14, alignItems:'center', marginBottom:16 }}>
+                <Text style={{ color:'#fff', fontWeight:'800' }}>{saving ? 'Guardando...' : 'Guardar cambios'}</Text>
+              </TouchableOpacity>
+            </>
           )}
-
-          {/* Nombre completo */}
-          <Text style={{ marginBottom:6, color: theme.colors.text }}>Nombre completo</Text>
-          <TextInput
-            value={fullName}
-            onChangeText={setFullName}
-            placeholder="Tu nombre"
-            placeholderTextColor={theme.colors.gray}
-            style={{ backgroundColor:'#fff', borderRadius:10, padding:12, borderWidth:1, borderColor: theme.colors.border, marginBottom:16, color: theme.colors.text }}
-          />
-          {/* phone */}
-          <Text style={{ marginBottom:6, color: theme.colors.text }}>Telefono</Text>
-          <TextInput
-            value={phone}
-            onChangeText={setPhone}
-            placeholder="Tu telefono"
-            placeholderTextColor={theme.colors.gray}
-            style={{ backgroundColor:'#fff', borderRadius:10, padding:12, borderWidth:1, borderColor: theme.colors.border, marginBottom:16, color: theme.colors.text }}
-          />
-
-          <TouchableOpacity onPress={onSave} disabled={saving} style={{ backgroundColor: theme.colors.text, borderRadius:10, padding:14, alignItems:'center', marginBottom:16 }}>
-            <Text style={{ color:'#fff', fontWeight:'800' }}>{saving ? 'Guardando...' : 'Guardar cambios'}</Text>
-          </TouchableOpacity>
 
           {/* Mis negocios */}
           <Text style={{ fontWeight:'800', fontSize:16, color: theme.colors.text, marginBottom:8 }}>Mis negocios</Text>

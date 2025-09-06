@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { View, Text, FlatList, ActivityIndicator } from 'react-native';
+import { View, Text, FlatList, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { supabase } from '../../lib/supabase';
 import { SearchBar } from '../../components/SearchBar';
 import { DropdownSelect } from '../../components/DropdownSelect';
@@ -21,6 +21,8 @@ export default function Home() {
   const [citySel, setCitySel] = useState<string | null>(null);
   const [data, setData] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
 
   // para pedir a SearchBar que cierre sugerencias al empezar scroll
   const closeTick = useRef(0);
@@ -55,7 +57,7 @@ export default function Home() {
         q: qtext || null,
         service_slugs,
         city_filter: citySel || null,
-        page_size: 50,
+        page_size: 1000,
         page: 0
       });
       if (error) throw error;
@@ -63,6 +65,7 @@ export default function Home() {
     } catch (e) {
       console.error(e);
       setData([]);
+      setPage(1);
     } finally {
       setLoading(false);
     }
@@ -101,28 +104,51 @@ export default function Home() {
           <ActivityIndicator color={theme.colors.primary} />
         </View>
       ) : (
-        <FlatList
-          data={data}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={{ paddingVertical:6, paddingBottom:16 }}
-          keyboardShouldPersistTaps="handled"
-          onScrollBeginDrag={bumpCloseTick}
-          renderItem={({ item }) => (
-            <BusinessCard
-              name={item.name}
-              city={item.city}
-              service={item.service}
-              isOpen={item.is_open}
-              imageUrl={item.image_url ? `${item.image_url}${item.image_url.includes('?') ? '&' : '?'}ts=${item.id}` : null}
-              onPress={() => router.push(`/business/${item.id}`)}
-            />
+        <>
+          <FlatList
+            data={data.slice((page-1)*pageSize, page*pageSize)}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={{ paddingVertical:6, paddingBottom:16 }}
+            keyboardShouldPersistTaps="handled"
+            onScrollBeginDrag={bumpCloseTick}
+            renderItem={({ item }) => (
+              <BusinessCard
+                name={item.name}
+                city={item.city}
+                service={item.service}
+                isOpen={item.is_open}
+                imageUrl={item.image_url ? `${item.image_url}${item.image_url.includes('?') ? '&' : '?'}ts=${item.id}` : null}
+                onPress={() => router.push(`/business/${item.id}`)}
+              />
+            )}
+            ListEmptyComponent={
+              <Text style={{ textAlign:'center', marginTop:24, color:theme.colors.gray }}>
+                Sin resultados
+              </Text>
+            }
+          />
+          {Math.ceil(data.length / pageSize) > 1 && (
+            <View style={{ flexDirection:'row', justifyContent:'center', marginBottom:12 }}>
+              {Array.from({ length: Math.ceil(data.length / pageSize) }, (_, i) => (
+                <TouchableOpacity
+                  key={i}
+                  onPress={() => setPage(i+1)}
+                  style={{
+                    paddingHorizontal:8,
+                    paddingVertical:6,
+                    marginHorizontal:4,
+                    borderRadius:4,
+                    borderWidth:1,
+                    borderColor: theme.colors.border,
+                    backgroundColor: page === i+1 ? theme.colors.primary : '#fff'
+                  }}
+                >
+                  <Text style={{ color: page === i+1 ? '#fff' : theme.colors.text }}>{i+1}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           )}
-          ListEmptyComponent={
-            <Text style={{ textAlign:'center', marginTop:24, color:theme.colors.gray }}>
-              Sin resultados
-            </Text>
-          }
-        />
+        </>
       )}
     </View>
   );

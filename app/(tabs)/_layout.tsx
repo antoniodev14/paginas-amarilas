@@ -1,5 +1,5 @@
 import { Tabs, useRouter, Link } from 'expo-router';
-import { Text, TouchableOpacity, View, ActivityIndicator } from 'react-native';
+import { TouchableOpacity, View, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthRole } from '../../lib/auth';
 import { theme } from '../../lib/theme';
@@ -7,24 +7,20 @@ import { useSession } from '../../lib/useSession';
 
 function HeaderRight() {
   const router = useRouter();
-  const { session, fullName, signOut } = useAuthRole();
+  const { session, signOut } = useAuthRole();
 
   if (session) {
     const handleSignOut = async () => {
-      try { await signOut(); } finally { router.replace('/'); }
+      try { 
+        await signOut(); 
+      } finally { 
+        router.replace('/'); 
+      }
     };
     return (
-      <View style={{ flexDirection:'row', alignItems:'center' }}>
-        {!!fullName && (
-          <Text style={{ color: theme.colors.gray, marginRight: 10 }} numberOfLines={1}>
-            Hola, {fullName}
-          </Text>
-        )}
-        <TouchableOpacity
-          onPress={handleSignOut}
-          style={{ paddingHorizontal:14, paddingVertical:8, backgroundColor: theme.colors.text, borderRadius:10, marginRight:4 }}
-        >
-          <Text style={{ color:'#fff', fontWeight:'600' }}>Salir</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 12 }}>
+        <TouchableOpacity onPress={handleSignOut}>
+          <Ionicons name="log-out-outline" size={26} color={theme.colors.text} />
         </TouchableOpacity>
       </View>
     );
@@ -35,7 +31,7 @@ function HeaderRight() {
       <TouchableOpacity
         style={{ paddingHorizontal:14, paddingVertical:8, backgroundColor: theme.colors.primary, borderRadius:10, marginRight:16 }}
       >
-        <Text style={{ color:'#fff', fontWeight:'700' }}>Entrar / Registrar</Text>
+        <Ionicons name="log-in-outline" size={20} color="#fff" />
       </TouchableOpacity>
     </Link>
   );
@@ -81,7 +77,6 @@ export default function TabsLayout() {
         }}
       />
 
-      {/* visible solo con sesión; el guard de owner se hace dentro de la pantalla */}
       <Tabs.Screen
         name="reservas"
         options={{
@@ -90,13 +85,12 @@ export default function TabsLayout() {
           href: session ? undefined : null,
         }}
       />
+
       <Tabs.Screen
-        name="eventos" // ⬅️ crea el archivo app/(tabs)/eventos.tsx
+        name="eventos"
         options={{
           title: 'Eventos',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="sparkles-outline" color={color} size={size} />
-          ),
+          tabBarIcon: ({ color, size }) => <Ionicons name="sparkles-outline" color={color} size={size} />,
         }}
       />
     </Tabs>

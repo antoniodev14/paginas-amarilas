@@ -16,9 +16,8 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { Buffer } from 'buffer';
-import { readAsStringAsync, EncodingType } from 'expo-file-system';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { uploadImage } from '../../lib/upload';
 
 import { supabase } from '../../lib/supabase';
 import { useAuthInfo } from '../../lib/useAuthInfo';
@@ -102,33 +101,9 @@ export default function CrearEventoScreen() {
   // ==== Subida a storage: events ====
   const uploadToEventsBucket = useCallback(async (businessId: string, uri: string, mime: string) => {
     setUploading(true);
-    try {
-      let bytes: Uint8Array | Buffer;
-
-      try {
-        const r = await fetch(uri);
-        const b: any = await r.blob();
-        if (typeof b.arrayBuffer === 'function') {
-          const ab = await b.arrayBuffer();
-          bytes = new Uint8Array(ab);
-        } else {
-          const b64fallback = await readAsStringAsync(uri, { encoding: EncodingType.Base64 });
-          bytes = Buffer.from(b64fallback, 'base64');
-        }
-      } catch {
-        const b64 = await readAsStringAsync(uri, { encoding: EncodingType.Base64 });
-        bytes = Buffer.from(b64, 'base64');
-      }
-
+    try {   
       const path = `${businessId}/event-${Date.now()}.jpg`;
-      const { error: upErr } = await supabase.storage.from('events').upload(path, bytes, { contentType: mime || 'image/jpeg', upsert: true });
-      if (upErr) {
-        console.log('[STORAGE UPLOAD ERROR]', upErr);
-        throw upErr;
-      }
-
-      const { data: pub } = supabase.storage.from('business_events').getPublicUrl(path);
-      return `${pub.publicUrl}?v=${Date.now()}`;
+      return await uploadImage('events', path, uri, mime);
     } finally {
       setUploading(false);
     }

@@ -1,5 +1,5 @@
 // app/(tabs)/reservas.tsx
-import React, { useEffect, useState, useCallback, memo } from 'react';
+import React, { useEffect, useState, useCallback, memo, useMemo } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, ActivityIndicator,
   Modal, TextInput, Alert, KeyboardAvoidingView, Platform, Linking
@@ -41,17 +41,11 @@ const STATUS_LABEL: Record<string,string> = {
 };
 
 // ======== Utils ========
-function fmtYMD_DB(d: Date) {        // para RPC/queries
+function fmtYMD_DB(d: Date) {
   const y = d.getFullYear();
   const m = String(d.getMonth()+1).padStart(2,'0');
   const day = String(d.getDate()).padStart(2,'0');
   return `${y}-${m}-${day}`;
-}
-function fmtDDMMYYYY(d: Date) {      // para UI
-  const y = d.getFullYear();
-  const m = String(d.getMonth()+1).padStart(2,'0');
-  const day = String(d.getDate()).padStart(2,'0');
-  return `${day}-${m}-${y}`;
 }
 function normalizeHHMM(input: string) {
   const d = (input || '').replace(/\D/g,'').slice(0,4);
@@ -64,6 +58,18 @@ function sanitizeHHMM(str: string) {
   const hh = Math.min(parseInt(hhRaw||'0',10)||0, 23);
   const mm = Math.min(parseInt(mmRaw||'0',10)||0, 59);
   return `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
+}
+function toDateTime(r: Reservation) {
+  return new Date(`${r.date}T${r.time}`);
+}
+function isPast(r: Reservation, now = new Date()) {
+  return toDateTime(r).getTime() < now.getTime();
+}
+function isFutureOrNow(r: Reservation, now = new Date()) {
+  return !isPast(r, now);
+}
+function isConfirmed(r: Reservation) {
+  return r.status === 'confirmed' || r.status === 'accepted';
 }
 
 // ======== UI pequeñas piezas ========
@@ -86,48 +92,57 @@ function StatusBadge({ status }: { status: Reservation['status'] }) {
   );
 }
 
+type SegVal = 'mine'|'business'|'queue'; // queue = Lista clientes
 function Segmented({
-  value, onChange, disabled
-}: { value:'mine'|'business'; onChange:(v:'mine'|'business')=>void; disabled?:boolean }) {
+  value, onChange, disabled, isOwner
+}: { value:SegVal; onChange:(v:SegVal)=>void; disabled?:boolean; isOwner:boolean }) {
   return (
     <View style={{ flexDirection:'row', alignSelf:'flex-start', borderRadius:10, overflow:'hidden', borderWidth:1, borderColor: theme.colors.border }}>
       <TouchableOpacity
         onPress={()=>onChange('mine')}
         disabled={disabled}
-        style={{
-          paddingVertical:8, paddingHorizontal:12,
-          backgroundColor: value==='mine' ? theme.colors.primary : '#fff'
-        }}
+        style={{ paddingVertical:8, paddingHorizontal:12, backgroundColor: value==='mine' ? theme.colors.primary : '#fff' }}
         activeOpacity={0.85}
       >
         <Text style={{ color: value==='mine' ? '#fff' : theme.colors.text, fontWeight:'800', fontSize:12 }}>
           Mis reservas
         </Text>
       </TouchableOpacity>
-      <TouchableOpacity
-        onPress={()=>onChange('business')}
-        disabled={disabled}
-        style={{
-          paddingVertical:8, paddingHorizontal:12,
-          borderLeftWidth:1, borderLeftColor: theme.colors.border,
-          backgroundColor: value==='business' ? theme.colors.primary : '#fff'
-        }}
-        activeOpacity={0.85}
-      >
-        <Text style={{ color: value==='business' ? '#fff' : theme.colors.text, fontWeight:'800', fontSize:12 }}>
-          Del negocio
-        </Text>
-      </TouchableOpacity>
+
+      {isOwner && (
+        <>
+          <TouchableOpacity
+            onPress={()=>onChange('business')}
+            disabled={disabled}
+            style={{ paddingVertical:8, paddingHorizontal:12, borderLeftWidth:1, borderLeftColor: theme.colors.border, backgroundColor: value==='business' ? theme.colors.primary : '#fff' }}
+            activeOpacity={0.85}
+          >
+            <Text style={{ color: value==='business' ? '#fff' : theme.colors.text, fontWeight:'800', fontSize:12 }}>
+              Del negocio
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={()=>onChange('queue')}
+            disabled={disabled}
+            style={{ paddingVertical:8, paddingHorizontal:12, borderLeftWidth:1, borderLeftColor: theme.colors.border, backgroundColor: value==='queue' ? theme.colors.primary : '#fff' }}
+            activeOpacity={0.85}
+          >
+            <Text style={{ color: value==='queue' ? '#fff' : theme.colors.text, fontWeight:'800', fontSize:12 }}>
+              Lista clientes
+            </Text>
+          </TouchableOpacity>
+        </>
+      )}
     </View>
   );
 }
 
-// ======== Grupos de filtro (select) ========
+// ======== Grupos de filtro (Del negocio) ========
 type StatusGroupKey = 'all' | 'pending' | 'confirmed' | 'proposed' | 'cancelled';
 const STATUS_GROUP_LABEL: Record<StatusGroupKey,string> = {
   all: 'Todos',
   pending: 'Pendiente',
-  confirmed: 'Confirmada',
+  confirmed: 'Confirmadas ya pasadas', // renombrado
   proposed: 'Propuesta enviada',
   cancelled: 'Rechazada / Cancelada',
 };
@@ -208,9 +223,9 @@ export default function ReservationsScreen() {
   const router = useRouter();
   const { isOwner, businessId, loading: authLoading, session } = useAuthInfo() as any;
 
-  const [viewMode, setViewMode] = useState<'mine'|'business'>(isOwner ? 'business' : 'mine');
+  const [viewMode, setViewMode] = useState<SegVal>(isOwner ? 'business' : 'mine');
 
-  // Modales (solo la de editar)
+  // Modales
   const [editOpen, setEditOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Reservation | null>(null);
 
@@ -218,7 +233,7 @@ export default function ReservationsScreen() {
   const [myBusy, setMyBusy] = useState(true);
   const [myRows, setMyRows] = useState<Reservation[]>([]);
 
-  // Negocio
+  // Negocio (dataset base)
   const [rows, setRows] = useState<Reservation[]>([]);
   const [busy, setBusy] = useState(true);
 
@@ -248,7 +263,7 @@ export default function ReservationsScreen() {
         const { data, error } = await supabase
           .from('reservations')
           .select(`
-            id, business_id, date, time, status, party_size, notes, proposed_time,
+            id, business_id, date, time, status, party_size, people, phone, full_name, notes, proposed_time,
             business:business_id ( name, city )
           `)
           .eq('user_id', session.user.id)
@@ -265,19 +280,27 @@ export default function ReservationsScreen() {
     }
   }, [session?.user?.id]);
 
-  const fetchBusinessReservations = useCallback(async () => {
+  const fetchBusinessReservations = useCallback(async (mode: SegVal) => {
     if (!businessId || !isOwner) { setRows([]); setBusy(false); return; }
     setBusy(true);
     try {
       const today = new Date(); today.setHours(0,0,0,0);
-      const fromDate = new Date(today); fromDate.setDate(today.getDate()-7);
+      const fromDate = new Date(today); fromDate.setDate(today.getDate()-30);  // rango más amplio
       const toDate = new Date(today);   toDate.setDate(today.getDate()+60);
       const from = fmtYMD_DB(fromDate);
       const to   = fmtYMD_DB(toDate);
-      const statuses = STATUS_GROUPS[selectedGroup]; // array o null
+
+      // Lista clientes => SOLO confirmadas/aceptadas
+      const statusesForRpc =
+        mode === 'queue'
+          ? ['confirmed','accepted']
+          : STATUS_GROUPS[selectedGroup];
 
       const { data, error } = await supabase.rpc('owner_list_reservations', {
-        p_business_id: businessId, p_statuses: statuses, p_from: from, p_to: to, p_q: null, p_limit: 200, p_offset: 0,
+        p_business_id: businessId,
+        p_statuses: statusesForRpc,
+        p_from: from, p_to: to, p_q: null,
+        p_limit: 500, p_offset: 0,
       });
       if (error) throw error;
       setRows((data || []) as Reservation[]);
@@ -294,11 +317,13 @@ export default function ReservationsScreen() {
   useFocusEffect(useCallback(() => {
     if (authLoading || anyModalOpen) return;
     fetchMyReservations();
-    fetchBusinessReservations();
-  }, [authLoading, anyModalOpen, fetchMyReservations, fetchBusinessReservations]));
+    fetchBusinessReservations(viewMode); // respeta modo actual (incluye entrar directo en queue)
+  }, [authLoading, anyModalOpen, viewMode, fetchMyReservations, fetchBusinessReservations]));
 
   useEffect(() => {
-    if (!authLoading && isOwner && !anyModalOpen && viewMode==='business') fetchBusinessReservations();
+    if (!authLoading && isOwner && !anyModalOpen && (viewMode==='business' || viewMode==='queue')) {
+      fetchBusinessReservations(viewMode);
+    }
   }, [selectedGroup, viewMode, isOwner, authLoading, anyModalOpen, fetchBusinessReservations]);
 
   // ======== Acciones (cliente) ========
@@ -320,7 +345,7 @@ export default function ReservationsScreen() {
     try {
       const { data, error } = await supabase.rpc('customer_accept_proposal', {
         p_reservation_id: id,
-        p_anon_token: null,  // si gestionas anónimo, rellénalo; aquí cliente logueado
+        p_anon_token: null,
       });
       if (error) throw error;
       if (!data) { Alert.alert('No se pudo aceptar', 'La propuesta ya no es válida.'); return; }
@@ -334,22 +359,22 @@ export default function ReservationsScreen() {
   // ======== Acciones (dueño) ========
   const confirmReservation = useCallback(async (id: string) => {
     try { const { error } = await supabase.rpc('owner_confirm_reservation', { p_reservation_id: id }); if (error) throw error;
-      Alert.alert('Confirmada', 'La reserva ha sido confirmada.'); fetchBusinessReservations();
+      Alert.alert('Confirmada', 'La reserva ha sido confirmada.'); fetchBusinessReservations(viewMode);
     } catch (e:any) { Alert.alert('Error', e?.message ?? 'No se pudo confirmar'); }
-  }, [fetchBusinessReservations]);
+  }, [fetchBusinessReservations, viewMode]);
 
   const cancelReservationOwner = useCallback(async (id: string) => {
     try { const { error } = await supabase.rpc('owner_cancel_reservation', { p_reservation_id: id, p_reason: null }); if (error) throw error;
-      Alert.alert('Cancelada', 'La reserva ha sido cancelada.'); fetchBusinessReservations();
+      Alert.alert('Cancelada', 'La reserva ha sido cancelada.'); fetchBusinessReservations(viewMode);
     } catch (e:any) { Alert.alert('Error', e?.message ?? 'No se pudo cancelar'); }
-  }, [fetchBusinessReservations]);
+  }, [fetchBusinessReservations, viewMode]);
 
   const proposeNewTime = useCallback(async (resv: Reservation, hhmm: string) => {
     const { error } = await supabase.rpc('owner_propose_time_change', { p_reservation_id: resv.id, p_new_time: `${hhmm}:00` });
     if (error) throw error;
     Alert.alert('Propuesta enviada', 'El cliente podrá aceptar o cancelar.');
-    fetchBusinessReservations();
-  }, [fetchBusinessReservations]);
+    fetchBusinessReservations(viewMode);
+  }, [fetchBusinessReservations, viewMode]);
 
   // ======== Helpers UI ========
   const handleCall = useCallback((phone?: string | null) => {
@@ -358,10 +383,76 @@ export default function ReservationsScreen() {
   const isCancelledGroup = (status: Reservation['status']) =>
     ['declined','canceled','cancelled'].includes(status);
 
+  // ======== Derivadas para DEL NEGOCIO (respetando picker) ========
+  const now = new Date();
+
+  const businessFilteredSorted = useMemo(() => {
+    let list: Reservation[] = [];
+
+    switch (selectedGroup) {
+      case 'pending':
+        // Solo pendientes futuras (o ahora)
+        list = rows.filter(r => r.status === 'pending' && isFutureOrNow(r, now));
+        break;
+
+      case 'confirmed':
+        // Confirmadas ya pasadas
+        list = rows.filter(r => isConfirmed(r) && isPast(r, now));
+        break;
+
+      case 'proposed':
+        // Propuestas/modificadas (no pedidas explícitamente, pero mantenemos el filtro)
+        list = rows.filter(r => ['modified','owner_proposed'].includes(r.status));
+        break;
+
+      case 'cancelled':
+        // ¡Lo que faltaba! Rechazadas/canceladas (tanto pasadas como futuras)
+        list = rows.filter(r => isCancelledGroup(r.status));
+        break;
+
+      case 'all':
+      default:
+        // Mixto útil: pendientes futuras + confirmadas pasadas
+        list = rows.filter(r =>
+          (r.status === 'pending' && isFutureOrNow(r, now)) ||
+          (isConfirmed(r) && isPast(r, now))
+        );
+        break;
+    }
+
+    // Orden general: futuros arriba (si los hay), luego pasados; dentro, por fecha/hora asc
+    list.sort((a, b) => {
+      const aPast = isPast(a, now);
+      const bPast = isPast(b, now);
+      if (aPast !== bPast) return aPast ? 1 : -1;
+      return toDateTime(a).getTime() - toDateTime(b).getTime();
+    });
+
+    return list;
+  }, [rows, selectedGroup]);
+
+  // ======== Derivadas para LISTA CLIENTES (solo confirmadas futuras) ========
+  const PAGE_SIZE = 30;
+
+  const queueAll = useMemo(() => {
+    const base = rows.filter(r => isConfirmed(r) && isFutureOrNow(r, now));
+    base.sort((a,b) => toDateTime(a).getTime() - toDateTime(b).getTime());
+    return base;
+  }, [rows]);
+
+  const [page, setPage] = useState(1);
+  useEffect(()=>{ setPage(1); }, [viewMode]); // reset paginación al cambiar de vista
+
+  const totalPages = Math.max(1, Math.ceil(queueAll.length / PAGE_SIZE));
+  const queuePage = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return queueAll.slice(start, start + PAGE_SIZE);
+  }, [queueAll, page]);
+
   // ======== Render ========
   const HeaderArea = () => (
     <View style={{ paddingHorizontal:16, paddingTop:10, paddingBottom:6 }}>
-      {isOwner && (<Segmented value={viewMode} onChange={setViewMode} />)}
+      <Segmented value={viewMode} onChange={setViewMode} isOwner={!!isOwner} />
 
       {isOwner && viewMode==='business' && (
         <View style={{ marginTop:10 }}>
@@ -381,12 +472,54 @@ export default function ReservationsScreen() {
           </TouchableOpacity>
 
           <Text style={{ marginTop: 6, color: theme.colors.gray, fontSize: 12 }}>
-            Filtro por estado {selectedGroup === 'all' ? '(Pendiente + Confirmadas)' : ''}
+            {selectedGroup === 'confirmed'
+              ? 'Solo confirmadas que ya pasaron'
+              : selectedGroup === 'pending'
+                ? 'Solo pendientes próximas'
+                : selectedGroup === 'cancelled'
+                  ? 'Rechazadas y canceladas'
+                  : 'Pendientes próximas + Confirmadas pasadas'}
           </Text>
         </View>
       )}
     </View>
   );
+
+  const LineItem = ({ r, rightActions }: { r: Reservation; rightActions?: React.ReactNode }) => {
+    const dateLabel = new Date(r.date+'T'+r.time).toLocaleDateString();
+    const timeLabel = r.time.slice(0,5);
+    const ppl = getPeople(r);
+
+    return (
+      <View style={{
+        backgroundColor:'#fff', borderRadius:14, borderWidth:1, borderColor: theme.colors.border,
+        padding:12, marginBottom:12, shadowColor:'#000', shadowOpacity:0.06, shadowRadius:6, shadowOffset:{width:0,height:2}, elevation:2
+      }}>
+        <View style={{ flexDirection:'row', alignItems:'center', justifyContent:'space-between' }}>
+          <Text style={{ fontWeight:'900', color: theme.colors.text }}>
+            {dateLabel} · {timeLabel}{ppl ? ` — ${ppl} pers.` : ''}
+          </Text>
+
+          <View style={{ flexDirection:'row', alignItems:'center', gap:8 }}>
+            {!!r.phone && (
+              <TouchableOpacity
+                onPress={() => handleCall(r.phone)}
+                style={{ paddingHorizontal:10, paddingVertical:6, borderRadius:10, borderWidth:1, borderColor: theme.colors.border }}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="call-outline" size={18} color={theme.colors.text} />
+              </TouchableOpacity>
+            )}
+            {rightActions}
+          </View>
+        </View>
+
+        <Text style={{ marginTop:6, color: theme.colors.gray }} numberOfLines={1}>
+          {r.full_name ?? ''}{r.phone ? ` · ${r.phone}` : ''}
+        </Text>
+      </View>
+    );
+  };
 
   const MineView = () => (
     <View style={{ flex:1 }}>
@@ -396,63 +529,75 @@ export default function ReservationsScreen() {
         <ScrollView contentContainerStyle={{ padding:16, paddingBottom:96 }} keyboardShouldPersistTaps="handled">
           {myRows.length === 0 ? (
             <Text style={{ color: theme.colors.gray }}>Aún no tienes reservas.</Text>
-          ) : myRows.map((r) => {
-            const dateLabel = new Date(r.date+'T'+r.time).toLocaleDateString();
-            const timeLabel = r.time.slice(0,5);
-            const ppl = getPeople(r);
-            const canAcceptProposal = r.status === 'owner_proposed' || r.status === 'modified';
-            const canCancel = !isCancelledGroup(r.status);
-            const businessName = r.business?.name ?? 'Establecimiento';
+          ) : myRows
+              // Mis reservas: mantenemos tu regla anterior (pendientes + confirmadas pasadas)
+              .filter(r =>
+                (r.status === 'pending' && isFutureOrNow(r, now)) ||
+                (isConfirmed(r) && isPast(r, now))
+              )
+              .sort((a,b) => {
+                const aPast = isPast(a, now);
+                const bPast = isPast(b, now);
+                if (aPast !== bPast) return aPast ? 1 : -1;
+                return toDateTime(a).getTime() - toDateTime(b).getTime();
+              })
+              .map((r) => {
+                const dateLabel = new Date(r.date+'T'+r.time).toLocaleDateString();
+                const timeLabel = r.time.slice(0,5);
+                const ppl = getPeople(r);
+                const canAcceptProposal = r.status === 'owner_proposed' || r.status === 'modified';
+                const canCancel = !isCancelledGroup(r.status);
+                const businessName = r.business?.name ?? 'Establecimiento';
 
-            return (
-              <View key={r.id} style={{
-                backgroundColor:'#fff', borderRadius:14, borderWidth:1, borderColor: theme.colors.border,
-                padding:12, marginBottom:12, shadowColor:'#000', shadowOpacity:0.06, shadowRadius:6, shadowOffset:{width:0,height:2}, elevation:2
-              }}>
-                <View style={{ flexDirection:'row', alignItems:'center', justifyContent:'space-between' }}>
-                  <Text style={{ fontWeight:'900', color: theme.colors.text }}>{businessName}</Text>
+                return (
+                  <View key={r.id} style={{
+                    backgroundColor:'#fff', borderRadius:14, borderWidth:1, borderColor: theme.colors.border,
+                    padding:12, marginBottom:12, shadowColor:'#000', shadowOpacity:0.06, shadowRadius:6, shadowOffset:{width:0,height:2}, elevation:2
+                  }}>
+                    <View style={{ flexDirection:'row', alignItems:'center', justifyContent:'space-between' }}>
+                      <Text style={{ fontWeight:'900', color: theme.colors.text }}>{businessName}</Text>
 
-                  <View style={{ flexDirection:'row', alignItems:'center', gap:8 }}>
-                    {!isCancelledGroup(r.status) && (
-                      <TouchableOpacity
-                        onPress={() => handleCall(r.phone)}
-                        style={{ paddingHorizontal:10, paddingVertical:6, borderRadius:10, borderWidth:1, borderColor: theme.colors.border }}
-                        activeOpacity={0.8}
-                      >
-                        <Ionicons name="call-outline" size={18} color={theme.colors.text} />
-                      </TouchableOpacity>
+                      <View style={{ flexDirection:'row', alignItems:'center', gap:8 }}>
+                        {!isCancelledGroup(r.status) && !!r.phone && (
+                          <TouchableOpacity
+                            onPress={() => handleCall(r.phone)}
+                            style={{ paddingHorizontal:10, paddingVertical:6, borderRadius:10, borderWidth:1, borderColor: theme.colors.border }}
+                            activeOpacity={0.8}
+                          >
+                            <Ionicons name="call-outline" size={18} color={theme.colors.text} />
+                          </TouchableOpacity>
+                        )}
+                        <StatusBadge status={r.status} />
+                      </View>
+                    </View>
+
+                    <Text style={{ marginTop:6, color: theme.colors.text, fontWeight:'700' }}>
+                      {dateLabel} · {timeLabel}{ppl ? ` — ${ppl} pers.` : ''}
+                    </Text>
+
+                    {!!r.notes && (<Text style={{ marginTop:4, color: theme.colors.gray }} numberOfLines={2}>{r.notes}</Text>)}
+
+                    {r.proposed_time && (r.status === 'owner_proposed' || r.status === 'modified') && (
+                      <Text style={{ marginTop:6, color:'#8D6E63', fontWeight:'600' }}>
+                        Hora propuesta: {r.proposed_time.slice(0,5)}
+                      </Text>
                     )}
-                    <StatusBadge status={r.status} />
+
+                    <View style={{ flexDirection:'row', justifyContent:'flex-end', marginTop:10, alignItems:'center', gap:8 }}>
+                      {canAcceptProposal && (
+                        <TouchableOpacity onPress={() => acceptProposal(r.id)} style={{ paddingVertical:8, paddingHorizontal:12, borderRadius:10, borderWidth:1, borderColor:'#22C55E' }}>
+                          <Text style={{ color:'#22C55E', fontWeight:'800', fontSize:12 }}>Aceptar propuesta</Text>
+                        </TouchableOpacity>
+                      )}
+                      {canCancel && (
+                        <TouchableOpacity onPress={() => cancelMyReservation(r.id)} style={{ paddingVertical:8, paddingHorizontal:12, borderRadius:10, borderWidth:1, borderColor:'#EF4444' }}>
+                          <Text style={{ color:'#EF4444', fontWeight:'800', fontSize:12 }}>Cancelar</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
                   </View>
-                </View>
-
-                <Text style={{ marginTop:6, color: theme.colors.text, fontWeight:'700' }}>
-                  {dateLabel} · {timeLabel}{ppl ? ` — ${ppl} pers.` : ''}
-                </Text>
-
-                {!!r.notes && (<Text style={{ marginTop:4, color: theme.colors.gray }} numberOfLines={2}>{r.notes}</Text>)}
-
-                {r.proposed_time && (r.status === 'owner_proposed' || r.status === 'modified') && (
-                  <Text style={{ marginTop:6, color:'#8D6E63', fontWeight:'600' }}>
-                    Hora propuesta: {r.proposed_time.slice(0,5)}
-                  </Text>
-                )}
-
-                <View style={{ flexDirection:'row', justifyContent:'flex-end', marginTop:10, alignItems:'center', gap:8 }}>
-                  {canAcceptProposal && (
-                    <TouchableOpacity onPress={() => acceptProposal(r.id)} style={{ paddingVertical:8, paddingHorizontal:12, borderRadius:10, borderWidth:1, borderColor:'#22C55E' }}>
-                      <Text style={{ color:'#22C55E', fontWeight:'800', fontSize:12 }}>Aceptar propuesta</Text>
-                    </TouchableOpacity>
-                  )}
-                  {canCancel && (
-                    <TouchableOpacity onPress={() => cancelMyReservation(r.id)} style={{ paddingVertical:8, paddingHorizontal:12, borderRadius:10, borderWidth:1, borderColor:'#EF4444' }}>
-                      <Text style={{ color:'#EF4444', fontWeight:'800', fontSize:12 }}>Cancelar</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              </View>
-            );
-          })}
+                );
+              })}
         </ScrollView>
       )}
     </View>
@@ -464,17 +609,13 @@ export default function ReservationsScreen() {
         <View style={{ padding:16 }}><ActivityIndicator color={theme.colors.primary} /></View>
       ) : (
         <ScrollView contentContainerStyle={{ padding:16, paddingBottom:96, minHeight:120 }} keyboardShouldPersistTaps="handled">
-          {rows.length === 0 ? (
+          {businessFilteredSorted.length === 0 ? (
             <Text style={{ color: theme.colors.gray }}>Sin reservas para los filtros actuales.</Text>
-          ) : rows.map((r) => {
-            const dateLabel = new Date(r.date+'T'+r.time).toLocaleDateString();
-            const timeLabel = r.time.slice(0,5);
-            const ppl = getPeople(r);
-
-            const isConfirmed = r.status === 'confirmed' || r.status === 'accepted';
-            const canAccept = (r.status === 'pending' || r.status === 'modified') && !isConfirmed;
+          ) : businessFilteredSorted.map((r) => {
+            const isConf = isConfirmed(r);
+            const canAccept = (r.status === 'pending' || r.status === 'modified') && !isConf;
             const canCancel = !isCancelledGroup(r.status);
-            const canPropose = !isConfirmed && !['owner_proposed', 'declined','canceled','cancelled'].includes(r.status);
+            const canPropose = !isConf && !['owner_proposed', 'declined','canceled','cancelled'].includes(r.status);
 
             return (
               <View key={r.id} style={{
@@ -483,11 +624,11 @@ export default function ReservationsScreen() {
               }}>
                 <View style={{ flexDirection:'row', alignItems:'center', justifyContent:'space-between' }}>
                   <Text style={{ fontWeight:'900', color: theme.colors.text }}>
-                    {dateLabel} · {timeLabel}{ppl ? ` — ${ppl} pers.` : ''}
+                    {new Date(r.date+'T'+r.time).toLocaleDateString()} · {r.time.slice(0,5)}{getPeople(r) ? ` — ${getPeople(r)} pers.` : ''}
                   </Text>
 
                   <View style={{ flexDirection:'row', alignItems:'center', gap:8 }}>
-                    {!isCancelledGroup(r.status) && (
+                    {!!r.phone && !isCancelledGroup(r.status) && (
                       <TouchableOpacity
                         onPress={() => handleCall(r.phone)}
                         style={{ paddingHorizontal:10, paddingVertical:6, borderRadius:10, borderWidth:1, borderColor: theme.colors.border }}
@@ -599,6 +740,54 @@ export default function ReservationsScreen() {
     </View>
   );
 
+  const QueueView = () => (
+    <View style={{ flex:1 }}>
+      {busy ? (
+        <View style={{ padding:16 }}><ActivityIndicator color={theme.colors.primary} /></View>
+      ) : (
+        <ScrollView contentContainerStyle={{ padding:16, paddingBottom:96 }} keyboardShouldPersistTaps="handled">
+          {queuePage.length === 0 ? (
+            <Text style={{ color: theme.colors.gray }}>No hay reservas confirmadas próximas.</Text>
+          ) : queuePage.map((r) => (
+            <LineItem
+              key={r.id}
+              r={r}
+              rightActions={
+                <TouchableOpacity
+                  onPress={()=>cancelReservationOwner(r.id)}
+                  style={{ paddingHorizontal:10, paddingVertical:6, borderRadius:10, borderWidth:1, borderColor:'#EF4444' }}
+                >
+                  <Ionicons name="trash-outline" size={18} color="#EF4444" />
+                </TouchableOpacity>
+              }
+            />
+          ))}
+
+          {/* Paginación */}
+          {queueAll.length > PAGE_SIZE && (
+            <View style={{ marginTop:8, flexDirection:'row', justifyContent:'center', alignItems:'center', gap:12 }}>
+              <TouchableOpacity
+                onPress={()=>setPage(p => Math.max(1, p-1))}
+                disabled={page===1}
+                style={{ paddingHorizontal:12, paddingVertical:8, borderRadius:10, borderWidth:1, borderColor: theme.colors.border, opacity: page===1 ? 0.5 : 1 }}
+              >
+                <Text style={{ color: theme.colors.text, fontWeight:'700' }}>Anterior</Text>
+              </TouchableOpacity>
+              <Text style={{ color: theme.colors.gray }}>{page} / {totalPages}</Text>
+              <TouchableOpacity
+                onPress={()=>setPage(p => Math.min(totalPages, p+1))}
+                disabled={page===totalPages}
+                style={{ paddingHorizontal:12, paddingVertical:8, borderRadius:10, borderWidth:1, borderColor: theme.colors.border, opacity: page===totalPages ? 0.5 : 1 }}
+              >
+                <Text style={{ color: theme.colors.text, fontWeight:'700' }}>Siguiente</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </ScrollView>
+      )}
+    </View>
+  );
+
   if (authLoading) {
     return (
       <View style={{ flex:1, alignItems:'center', justifyContent:'center', backgroundColor: theme.colors.card }}>
@@ -610,7 +799,9 @@ export default function ReservationsScreen() {
   return (
     <View style={{ flex:1, backgroundColor: theme.colors.card }}>
       <HeaderArea />
-      {(isOwner && viewMode==='business') ? <BusinessView /> : <MineView />}
+      {viewMode==='mine' && <MineView />}
+      {isOwner && viewMode==='business' && <BusinessView />}
+      {isOwner && viewMode==='queue' && <QueueView />}
 
       {/* Modal edición única */}
       <EditModal

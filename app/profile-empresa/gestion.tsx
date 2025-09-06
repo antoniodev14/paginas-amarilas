@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { View, Text, TextInput, TextStyle, TouchableOpacity, Alert, Image, ScrollView, ActivityIndicator, KeyboardAvoidingView, Platform, TouchableWithoutFeedback, Keyboard } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { readAsStringAsync, EncodingType } from 'expo-file-system';
 import { supabase } from '../../lib/supabase';
-import { Buffer } from 'buffer';
 import { theme } from '../../lib/theme';
 import { useNavigation } from 'expo-router';
+import { uploadImage } from '../../lib/upload';
+
 
 type Service = { id: string; name: string; slug: string };
 type Biz = {
@@ -97,36 +97,9 @@ export default function GestionEmpresa() {
     try {
       setUploading(true);
       const asset = result.assets[0];
-      let fileBytes: Uint8Array | Buffer;
-
-      try {
-        const resp = await fetch(asset.uri);
-        const b: any = await resp.blob();
-        if (typeof b.arrayBuffer === 'function') {
-          const ab = await b.arrayBuffer();
-          fileBytes = new Uint8Array(ab);
-        } else {
-          const b64 = await readAsStringAsync(asset.uri, { encoding: EncodingType.Base64 });
-          fileBytes = Buffer.from(b64, 'base64');
-        }
-      } catch {
-        const b64 = await readAsStringAsync(asset.uri, { encoding: EncodingType.Base64 });
-        fileBytes = Buffer.from(b64, 'base64');
-      }
-
+      
       const path = `businesses/${biz.id}/main-${Date.now()}.jpg`;
-
-      const { error: upErr } = await supabase.storage
-        .from('business-images')
-        .upload(path, fileBytes, {
-          contentType: asset.mimeType ?? 'image/jpeg',
-          upsert: true,
-        });
-
-      if (upErr) { Alert.alert('Error al subir', upErr.message ?? ''); return; }
-
-      const { data: pub } = supabase.storage.from('business-images').getPublicUrl(path);
-      const publicUrl = `${pub.publicUrl}?v=${Date.now()}`;
+      const publicUrl = await uploadImage('business-images', path, asset.uri, asset.mimeType ?? 'image/jpeg');
 
       const { error: updErr } = await supabase
         .from('businesses')
