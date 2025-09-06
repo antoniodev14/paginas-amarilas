@@ -1,27 +1,26 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   View, Text, TouchableOpacity, TextInput, Alert, ScrollView, ActivityIndicator,
   KeyboardAvoidingView, Platform, TouchableWithoutFeedback, Keyboard
 } from 'react-native';
-import { useNavigation } from 'expo-router';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { supabase } from '../../lib/supabase';
 import { DAYS, isValidHHMM } from '../../lib/hours';
 import { theme } from '../../lib/theme';
 import { useHeaderHeight } from '@react-navigation/elements';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAuthInfo } from '../../lib/useAuthInfo';
 
 type Opening = Record<string, { start:string; end:string }[]>;
 
 function normalizeHHMM(input: string) {
-  // Solo dígitos, máximo 4 (HHMM)
   const d = (input || '').replace(/\D/g, '').slice(0, 4);
   const h = d.slice(0, 2);
   const m = d.slice(2, 4);
-  return d.length >= 3 ? `${h}:${m}` : h; // "1" -> "1", "123" -> "12:3"
+  return d.length >= 3 ? `${h}:${m}` : h;
 }
 
 function sanitizeHHMM(str: string) {
-  // Si ya está en formato HH:MM, clamp a 23:59
   if (!/^\d{1,2}(:\d{1,2})?$/.test(str)) return str;
   const [hhRaw, mmRaw = ''] = str.split(':');
   let hh = Math.min(parseInt(hhRaw || '0', 10) || 0, 23);
@@ -30,23 +29,29 @@ function sanitizeHHMM(str: string) {
 }
 
 export default function Horarios() {
+  const navigation = useNavigation();
+  const router = useRouter();
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
 
-  const navigation = useNavigation();
+  const { biz } = useLocalSearchParams<{ biz?: string | string[] }>();
+  const paramBizId = useMemo(() => Array.isArray(biz) ? biz[0] : biz, [biz]);
 
-  const [bizId, setBizId] = useState<string | null>(null);
+  const { session, loading, businessId: ownerDefaultBizId } = useAuthInfo();
+  const currentBizId = useMemo(() => paramBizId || ownerDefaultBizId || null, [paramBizId, ownerDefaultBizId]);
+
+  const [checking, setChecking] = useState(true);
+
   const [hours, setHours] = useState<Opening>(() => Object.fromEntries(DAYS.map(d => [d.key, []])) as Opening);
   const [tz, setTz] = useState('Europe/Madrid');
   const [saving, setSaving] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [kbVisible, setKbVisible] = useState(false); // 👈 estado teclado
+  const [screenLoading, setScreenLoading] = useState(true);
+  const [kbVisible, setKbVisible] = useState(false);
 
   useEffect(() => {
-    navigation.setOptions({ headerBackTitle: 'Atrás' });
+    navigation.setOptions({ headerBackTitle: 'Atrás', title: 'Horarios' });
   }, [navigation]);
 
-  // Escucha del teclado para ajustar paddingBottom
   useEffect(() => {
     const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
@@ -55,20 +60,61 @@ export default function Horarios() {
     return () => { sh.remove(); hd.remove(); };
   }, []);
 
+  // Guardia: sesión + ownership
   useEffect(() => {
     (async () => {
-      const { data: b } = await supabase.from('businesses').select('id, opening_hours, timezone').limit(1);
-      const row = b?.[0];
-      if (row) {
-        setBizId(row.id);
-        setTz(row.timezone ?? 'Europe/Madrid');
-        const oh = (row.opening_hours ?? {}) as Opening;
-        const filled: Opening = Object.fromEntries(DAYS.map(d => [d.key, Array.isArray(oh[d.key]) ? oh[d.key] : []])) as Opening;
-        setHours(filled);
-      }
-      setLoading(false);
+      if (loading) return;
+      if (!session || !currentBizId) { router.replace('/auth'); return; }
+
+      const { data, error } = await supabase
+        .from('business_members')
+        .select('business_id, role')
+        .eq('user_id', session.user.id)
+        .eq('business_id', currentBizId)
+        .eq('role', 'owner')
+        .maybeSingle();
+
+      if (error || !data) { router.replace('/auth'); return; }
+
+      setChecking(false);
     })();
-  }, []);
+  }, [loading, session, currentBizId]);
+
+  // Cargar horarios del negocio actual
+  useEffect(() => {
+    if (checking || !currentBizId) return;
+
+    (async () => {
+      try {
+        const { data: b, error } = await supabase
+          .from('businesses')
+          .select('id, opening_hours, timezone')
+          .eq('id', currentBizId)
+          .maybeSingle();
+
+        if (error) throw error;
+
+        if (b) {
+          setTz(b.timezone ?? 'Europe/Madrid');
+          const oh = (b.opening_hours ?? {}) as Opening;
+          const filled: Opening = Object.fromEntries(
+            DAYS.map(d => [d.key, Array.isArray(oh[d.key]) ? oh[d.key] : []])
+          ) as Opening;
+          setHours(filled);
+        } else {
+          // si no existe, deja el objeto vacío por defecto
+          setTz('Europe/Madrid');
+          setHours(Object.fromEntries(DAYS.map(d => [d.key, []])) as Opening);
+        }
+      } catch (e) {
+        console.log(e);
+        setTz('Europe/Madrid');
+        setHours(Object.fromEntries(DAYS.map(d => [d.key, []])) as Opening);
+      } finally {
+        setScreenLoading(false);
+      }
+    })();
+  }, [checking, currentBizId]);
 
   const addRange = (dayKey: string) =>
     setHours(prev => ({ ...prev, [dayKey]: [...prev[dayKey], { start:'09:00', end:'14:00' }] }));
@@ -80,14 +126,14 @@ export default function Horarios() {
     setHours(prev => ({ ...prev, [dayKey]: prev[dayKey].map((r,i)=> i===idx ? { ...r, [field]: value } : r) }));
 
   const onSave = async () => {
-    if (!bizId) return;
+    if (!currentBizId) return;
     for (const d of DAYS) for (const r of hours[d.key]) {
       if (!isValidHHMM(r.start) || !isValidHHMM(r.end)) { Alert.alert('Formato inválido', `Revisa ${d.label}`); return; }
     }
     setSaving(true);
     try {
       const { error } = await supabase.rpc('update_business_hours', {
-        p_business_id: bizId,
+        p_business_id: currentBizId,
         p_opening_hours: hours,
         p_timezone: tz
       });
@@ -100,14 +146,14 @@ export default function Horarios() {
     }
   };
 
-  if (loading) {
+  if (loading || checking || screenLoading) {
     return <View style={{ padding:16 }}><ActivityIndicator color={theme.colors.primary} /></View>;
   }
 
   return (
     <KeyboardAvoidingView
       behavior={Platform.select({ ios: 'padding', android: 'height' })}
-      keyboardVerticalOffset={headerHeight - 6} // 👈 solo compensamos el header
+      keyboardVerticalOffset={headerHeight - 6}
       style={{ flex:1 }}
     >
       <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
@@ -115,12 +161,10 @@ export default function Horarios() {
           style={{ flex:1, backgroundColor: theme.colors.card }}
           contentContainerStyle={{
             padding:16,
-            // 👇 si el teclado está visible, muy poco padding abajo para evitar “hueco”
-            // cuando no lo está, dejamos bottom safe-area cómodo
             paddingBottom: kbVisible ? 8 : 24 + insets.bottom,
           }}
           keyboardDismissMode="on-drag"
-          automaticallyAdjustKeyboardInsets // 👈 iOS utiliza sus propios insets (evita sobrecompensar)
+          automaticallyAdjustKeyboardInsets
           keyboardShouldPersistTaps="handled"
         >
           <Text style={{ fontSize:18, fontWeight:'800', marginBottom:8, color: theme.colors.text }}>

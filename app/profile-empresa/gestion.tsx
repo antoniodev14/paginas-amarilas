@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { View, Text, TextInput, TextStyle, TouchableOpacity, Alert, Image, ScrollView, ActivityIndicator, KeyboardAvoidingView, Platform, TouchableWithoutFeedback, Keyboard } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { supabase } from '../../lib/supabase';
 import { theme } from '../../lib/theme';
-import { useNavigation } from 'expo-router';
 import { uploadImage } from '../../lib/upload';
-
+import { useAuthInfo } from '../../lib/useAuthInfo';
 
 type Service = { id: string; name: string; slug: string };
 type Biz = {
@@ -14,12 +14,22 @@ type Biz = {
 };
 
 export default function GestionEmpresa() {
-  const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
-  const [services, setServices] = useState<Service[]>([]);
-  const [biz, setBiz] = useState<Biz | null>(null);
-
   const navigation = useNavigation();
+  const router = useRouter();
+  const { biz } = useLocalSearchParams<{ biz?: string | string[] }>();
+  const paramBizId = useMemo(() => Array.isArray(biz) ? biz[0] : biz, [biz]);
+
+  const { session, loading, businessId: ownerDefaultBizId } = useAuthInfo();
+
+  // fuente única de verdad para el negocio actual:
+  const currentBizId = useMemo(() => paramBizId || ownerDefaultBizId || null, [paramBizId, ownerDefaultBizId]);
+
+  const [checking, setChecking] = useState(true);
+  const [loadingScreen, setLoadingScreen] = useState(true);
+  const [uploading, setUploading] = useState(false);
+
+  const [services, setServices] = useState<Service[]>([]);
+  const [bizRow, setBizRow] = useState<Biz | null>(null);
 
   // form
   const [name, setName] = useState('');
@@ -31,58 +41,69 @@ export default function GestionEmpresa() {
   const [img, setImg] = useState<string | null>(null);
 
   useEffect(() => {
-    navigation.setOptions({ headerBackTitle: 'Atrás' });
+    navigation.setOptions({ headerBackTitle: 'Atrás', title: 'Gestión empresa' });
   }, [navigation]);
 
+  // Guardia: sesión + ownership del negocio actual
   useEffect(() => {
-    let mounted = true;
     (async () => {
-      const { data: { session} } = await supabase.auth.getSession();
-      if (!mounted) return;
+      if (loading) return;
+      if (!session || !currentBizId) { router.replace('/auth'); return; }
 
-      const { data: sv } = await supabase.from('services').select('id,name,slug').order('name');
-      if (mounted) setServices((sv ?? []) as Service[]);
-
-      if (!session?.user) { setLoading(false); return; }
-
-      const { data: m } = await supabase
+      const { data, error } = await supabase
         .from('business_members')
-        .select('business_id')
+        .select('business_id, role')
         .eq('user_id', session.user.id)
+        .eq('business_id', currentBizId)
         .eq('role', 'owner')
-        .limit(1);
-
-      const businessId = m?.[0]?.business_id;
-      if (!businessId) { if (mounted) setLoading(false); return; }
-
-      const { data: row, error } = await supabase
-        .from('businesses')
-        .select('id,name,description,city,address,phone,image_url,service_type_id')
-        .eq('id', businessId)
         .maybeSingle();
 
-      if (error) console.error(error);
-      if (!mounted) return;
+      if (error || !data) { router.replace('/auth'); return; }
 
-      const b = (row ?? null) as Biz | null;
-      setBiz(b);
-      if (b) {
-        setName(b.name);
-        setServiceId(b.service_type_id);
-        setCity(b.city ?? '');
-        setAddress(b.address ?? '');
-        setPhone(b.phone ?? '');
-        setDesc(b.description ?? '');
-        setImg(b.image_url);
-      }
-      setLoading(false);
+      setChecking(false);
     })();
-    return () => { mounted = false; };
-  }, []);
+  }, [loading, session, currentBizId]);
+
+  // Carga de datos (servicios + negocio) una vez verificado
+  useEffect(() => {
+    if (checking || !currentBizId) return;
+
+    (async () => {
+      try {
+        const [{ data: sv }, { data: row, error }] = await Promise.all([
+          supabase.from('services').select('id,name,slug').order('name'),
+          supabase
+            .from('businesses')
+            .select('id,name,description,city,address,phone,image_url,service_type_id')
+            .eq('id', currentBizId)
+            .maybeSingle()
+        ]);
+
+        setServices((sv ?? []) as Service[]);
+        if (error) throw error;
+
+        const b = (row ?? null) as Biz | null;
+        setBizRow(b);
+        if (b) {
+          setName(b.name);
+          setServiceId(b.service_type_id);
+          setCity(b.city ?? '');
+          setAddress(b.address ?? '');
+          setPhone(b.phone ?? '');
+          setDesc(b.description ?? '');
+          setImg(b.image_url);
+        }
+      } catch (e) {
+        console.log(e);
+        setBizRow(null);
+      } finally {
+        setLoadingScreen(false);
+      }
+    })();
+  }, [checking, currentBizId]);
 
   const onPickImage = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session || !biz?.id) { Alert.alert('Espera', 'Inicia sesión y carga el negocio.'); return; }
+    if (!session || !currentBizId) { Alert.alert('Espera', 'Inicia sesión y carga el negocio.'); return; }
 
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') { Alert.alert('Permiso requerido', 'Concede acceso a tus fotos.'); return; }
@@ -97,14 +118,14 @@ export default function GestionEmpresa() {
     try {
       setUploading(true);
       const asset = result.assets[0];
-      
-      const path = `businesses/${biz.id}/main-${Date.now()}.jpg`;
+
+      const path = `businesses/${currentBizId}/main-${Date.now()}.jpg`;
       const publicUrl = await uploadImage('business-images', path, asset.uri, asset.mimeType ?? 'image/jpeg');
 
       const { error: updErr } = await supabase
         .from('businesses')
         .update({ image_url: publicUrl })
-        .eq('id', biz.id)
+        .eq('id', currentBizId)
         .select('id')
         .single();
 
@@ -120,7 +141,7 @@ export default function GestionEmpresa() {
   };
 
   const onSave = async () => {
-    if (!biz) return;
+    if (!currentBizId) return;
     try {
       const { error } = await supabase
         .from('businesses')
@@ -133,7 +154,7 @@ export default function GestionEmpresa() {
           description: desc.trim() || null,
           image_url: img
         })
-        .eq('id', biz.id)
+        .eq('id', currentBizId)
         .select('id')
         .single();
       if (error) throw error;
@@ -143,8 +164,8 @@ export default function GestionEmpresa() {
     }
   };
 
-  if (loading) return <View style={{ padding:16 }}><ActivityIndicator color={theme.colors.primary} /></View>;
-  if (!biz) return <View style={{ padding:16 }}><Text style={{ color: theme.colors.text }}>No se encontró tu negocio.</Text></View>;
+  if (loading || checking || loadingScreen) return <View style={{ padding:16 }}><ActivityIndicator color={theme.colors.primary} /></View>;
+  if (!bizRow) return <View style={{ padding:16 }}><Text style={{ color: theme.colors.text }}>No se encontró el negocio.</Text></View>;
 
   return (
     <KeyboardAvoidingView behavior={Platform.select({ ios:'padding', android:'height' })} style={{ flex:1 }}>

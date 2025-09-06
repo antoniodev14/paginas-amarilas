@@ -82,6 +82,12 @@ export default function PerfilEmpresa() {
         onPress={() => router.push({ pathname: '/profile-empresa/galeria', params: { biz: businessId } })}
       />
       <View style={{ height:3 }} />
+      <ListItem
+        title="Gestión de eventos"
+        subtitle="Crea, edita o elimina eventos de tu negocio."
+        onPress={() => router.push({ pathname: '/profile-empresa/eventos', params: { biz: businessId } })}
+      />
+      <View style={{ height:3 }} />
     </View>
   );
 }
