@@ -90,6 +90,15 @@ export default function TabsLayout() {
           href: session ? undefined : null,
         }}
       />
+      <Tabs.Screen
+        name="eventos" // ⬅️ crea el archivo app/(tabs)/eventos.tsx
+        options={{
+          title: 'Eventos',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="sparkles-outline" color={color} size={size} />
+          ),
+        }}
+      />
     </Tabs>
   );
 }
